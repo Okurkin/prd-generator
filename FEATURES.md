@@ -1,0 +1,205 @@
+# ✨ PRD Generator v2.1 - Feature Summary
+
+## 🎯 Splněné požadavky
+
+### ✅ 1. Session Management - Proklikávání mezi sessions
+
+- **📁 Session List** - Sidebar s přehledem všech projektů
+- **🔄 Quick Switch** - Jednoduché přepínání mezi sessions
+- **🟢 Active Indicator** - Vizuální označení aktivní session
+- **📊 Version Count** - Zobrazení počtu verzí pro každou session
+- **🕒 Last Updated** - Časové razítko poslední úpravy
+
+### ✅ 2. Version Navigation - Tlačítka zpět/kupředu
+
+- **⬅️ Previous Button** - Navigace na předchozí verzi
+- **➡️ Next Button** - Navigace na následující verzi
+- **🔄 Current Button** - Rychlý návrat na aktuální verzi
+- **📍 Version Indicator** - Zobrazení "Version X of Y"
+- **🚫 Smart Disable** - Deaktivace tlačítek na krajích
+
+### ✅ 3. Diff View - Zelené/červené změny
+
+- **🔀 Side-by-side View** - Porovnání verzí vedle sebe
+- **🟩 Green Additions** - Přidané řádky zvýrazněny zeleně
+- **🟥 Red Deletions** - Odebrané řádky zvýrazněny červeně
+- **📊 Change Statistics** - Počet přidaných/odebraných řádků
+- **☑️ Show Differences** - Checkbox pro zapnutí/vypnutí diff
+
+### ✅ 4. Smart Version Control
+
+- **📝 Edit Current Only** - Editace pouze aktuální verze
+- **👁️ View Historical** - Prohlížení starších verzí bez editace
+- **💬 Chat Lock** - Chat deaktivován při prohlížení historie
+- **⚠️ Version Warning** - Upozornění při prohlížení starší verze
+
+### ✅ 5. Loading Overlay - Točící kolečko s overlay
+
+- **💫 CSS Animation** - Smooth spinning loader
+- **🌫️ Content Overlay** - Snížená opacity během loading
+- **🎯 Center Positioning** - Loader uprostřed dokumentu
+- **⏳ State Management** - Loading state pro všechny akce
+
+### ✅ 6. Funkční Quick Actions
+
+- **📝 Add Section** - Přidání nové sekce do PRD
+- **🎯 Update Timeline** - Aktualizace časového harmonogramu
+- **📊 Add Metrics** - Přidání nebo úprava metrik
+- **🚀 Instant Trigger** - Okamžité spuštění AI zpracování
+
+## 🎨 Enhanced UX Features
+
+### Visual Design
+
+```css
+- 🎨 Custom CSS styling pro profesionální vzhled
+- 🌈 Color-coded diff viewing (green/red)
+- ⚡ Smooth animations a transitions
+- 📱 Responsive design pro různé velikosti
+- 🔘 Interactive buttons s hover efekty
+```
+
+### State Management
+
+```javascript
+- 🧠 Smart session state persistence
+- 🔄 Version navigation state tracking
+- 💾 Loading state management
+- 👁️ View vs. edit mode switching
+- 📊 Diff toggle state persistence
+```
+
+### User Experience
+
+```
+- 🚫 Disabled editing for historical versions
+- ⚠️ Clear visual indicators for version status
+- 💬 Contextual chat availability
+- 🔄 Seamless session switching
+- 📥 Download only for current version
+- 📝 User prompt history for context
+```
+
+## 🆕 Latest Addition: User Prompt History
+
+### ✅ 7. Original Request Display
+
+- **📝 Prompt Visibility** - Zobrazení původního user promptu pro každou verzi
+- **🔍 Historical Context** - Pochopení, proč byla verze vytvořena
+- **📋 Audit Trail** - Kompletní historie požadavků a změn
+- **📂 Expandable UI** - Prompty v sidebar i main preview panel
+- **🔒 Readonly Mode** - Historické prompty nelze editovat
+- **🎨 Custom Styling** - Monospace font pro lepší čitelnost
+
+## 🏗️ Technical Architecture
+
+### Database Schema (Enhanced)
+
+```sql
+sessions:
+  - session_id (PK)
+  - product_name
+  - created_at, updated_at
+  - + version_count (computed)
+
+versions:
+  - id (PK), session_id (FK)
+  - version_number
+  - content, section_name
+  - change_description
+  - created_at
+
+chat_messages:
+  - id (PK), session_id (FK)
+  - message_type (user/assistant)
+  - content, created_at
+```
+
+### New Database Functions
+
+```python
+- get_max_version_number()     # Najít nejvyšší verzi
+- get_version_by_number()      # Načíst konkrétní verzi
+- get_all_sessions()           # Seznam sessions s počtem verzí
+```
+
+### Diff Engine
+
+```python
+- generate_side_by_side_diff()  # Side-by-side HTML diff
+- get_change_stats()           # Statistiky změn
+- Line-by-line comparison      # Detailní porovnání
+- HTML rendering with colors   # Barevné zvýraznění
+```
+
+## 🚀 Usage Flow
+
+### 1. Session Management
+
+```
+Start → Session List → Select/Create → Active Session
+↓
+Multiple sessions visible in sidebar
+↓
+Easy switching with visual feedback
+```
+
+### 2. Version Navigation
+
+```
+Current Version → Previous (⬅️) → View Diff → Next (➡️) → Current (🔄)
+↓
+Side-by-side comparison with green/red highlighting
+↓
+Statistics: +X lines, -Y lines, Z% similarity
+```
+
+### 3. Interactive Editing
+
+```
+Chat Input → Loading Overlay → AI Processing → Updated Preview
+↓
+Version automatically saved to database
+↓
+Change description generated by AI
+```
+
+### 4. Quick Actions
+
+```
+Add Section / Update Timeline / Add Metrics
+↓
+Pre-filled prompts sent to AI
+↓
+Instant processing with visual feedback
+```
+
+## 📊 Performance Features
+
+- **⚡ Fast SQLite operations** - Optimalizované dotazy
+- **🧠 Smart caching** - Streamlit cache pro databázi
+- **💾 State persistence** - Zachování stavu při navigaci
+- **🔄 Efficient diffs** - Optimalizované porovnávání textů
+- **📱 Responsive UI** - Rychlé rendering i na mobilech
+
+## 🔧 Developer Experience
+
+- **🐛 VS Code debugging** - Předkonfigurované launch.json
+- **📝 Type hints** - Kompletní type annotations
+- **🧪 Test script** - Automatické testování funkcí
+- **📋 Detailed logging** - Error handling s informativními hláškami
+- **🚀 Quick start** - Jeden příkaz pro spuštění
+
+## 🌟 Výsledek
+
+**Kompletně interaktivní PRD generator s:**
+
+- ✅ Multi-session management
+- ✅ Advanced version control s diff viewing
+- ✅ Real-time AI collaboration
+- ✅ Professional UI/UX
+- ✅ Robust error handling
+- ✅ Full developer tooling
+
+**🌐 Aplikace běží na:** http://localhost:8501  
+**⚡ Quick start:** `./start.sh`
