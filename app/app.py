@@ -320,29 +320,20 @@ def render_chat_panel(db):
                         st.rerun()
             
             # Chat input for current version
-            user_input, col_send, col_clear = render_chat_input()
+            user_input = render_chat_input()
             
-            # Update session state with current input value
-            if user_input != st.session_state.get('chat_input_value', ''):
-                st.session_state.chat_input_value = user_input
+            # Handle chat input submission
+            if user_input and not st.session_state.is_loading:
+                # Add user message
+                st.session_state.messages.append({"role": "user", "content": user_input})
+                db.save_chat_message(st.session_state.session_id, "user", user_input)
+                st.session_state.is_loading = True
+                st.rerun()
             
-            with col_send:
-                if st.button("💬 Send Message", key="send_message_btn", use_container_width=True) and user_input and not st.session_state.is_loading:
-                    # Add user message
-                    st.session_state.messages.append({"role": "user", "content": user_input})
-                    db.save_chat_message(st.session_state.session_id, "user", user_input)
-                    
-                    # Clear the input value
-                    st.session_state.chat_input_value = ""
-                    st.session_state.is_loading = True
-                    st.rerun()
-            
-            with col_clear:
-                if st.button("🗑️ Clear", key="clear_messages_btn", use_container_width=True):
-                    st.session_state.messages = []
-                    # Clear the input value
-                    st.session_state.chat_input_value = ""
-                    st.rerun()
+            # Clear messages button
+            if st.button("🗑️ Clear Chat", key="clear_messages_btn", use_container_width=True):
+                st.session_state.messages = []
+                st.rerun()
         
         else:
             # HISTORICAL VERSION - Show historical view

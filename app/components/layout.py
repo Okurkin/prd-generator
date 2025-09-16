@@ -4,6 +4,7 @@ This module contains all UI layout functions, CSS styles, and component builders
 """
 
 import streamlit as st
+from streamlit.components.v1 import html
 from typing import List, Dict, Any, Optional, Tuple
 
 
@@ -263,20 +264,34 @@ def load_custom_css():
     """, unsafe_allow_html=True)
 
 
+def scroll_to_bottom():
+    """Scroll to bottom of the chat using JavaScript"""
+    html("""
+<script>
+(function(){
+  const doc = window.parent.document;
+  const targets = [
+    'div[data-testid="stAppViewContainer"] .main',
+    'section.main',
+    '.block-container',
+    '[data-testid="stVerticalBlock"]'
+  ];
+  for (const sel of targets) {
+    const el = doc.querySelector(sel);
+    if (el) {
+      el.scrollTo({ top: el.scrollHeight, behavior: 'instant' });
+      break;
+    }
+  }
+})();
+</script>
+""", height=0)
+
+
 def display_chat_message(role: str, content: str):
-    """Display a formatted chat message"""
-    if role == "user":
-        st.markdown(f"""
-        <div class="chat-message user-message">
-            <strong>You:</strong> {content}
-        </div>
-        """, unsafe_allow_html=True)
-    else:
-        st.markdown(f"""
-        <div class="chat-message assistant-message">
-            <strong>Assistant:</strong> {content}
-        </div>
-        """, unsafe_allow_html=True)
+    """Display a formatted chat message using native Streamlit chat API"""
+    with st.chat_message(role):
+        st.markdown(content)
 
 
 def render_sidebar_sessions(db, all_sessions: List[Dict], create_new_session_callback, load_session_callback):
@@ -457,62 +472,25 @@ def render_initial_setup_form():
 
 
 def render_chat_interface(messages: List[Dict], max_height: str = "calc(100vh - 200px)", auto_scroll: bool = True):
-    """Render the chat message interface inside a scrollable viewport.
+    """Render the chat message interface using native Streamlit chat API with auto-scroll.
 
     Args:
         messages: List of chat messages to display.
-        max_height: CSS size for the maximum height of chat area (e.g., '65vh', '500px', 'calc(100vh - 300px)').
+        max_height: CSS size for the maximum height of chat area (ignored for native chat).
         auto_scroll: If True, auto-scroll to the bottom after render.
     """
-    # Use Streamlit's native container with height constraint and auto-scroll
-    container = st.container(height=400)  # Fixed height for scrolling
-    
-    with container:
-        if messages:
-            for i, message in enumerate(messages):
-                role = message.get("role") or message.get("type", "assistant")
-                content = message.get("content", "")
-                display_chat_message(role, content)
-            
-            # Auto-scroll to bottom using JavaScript
-            if auto_scroll and len(messages) > 0:
-                st.markdown(
-                    """
-                    <script>
-                    // Multiple attempts to ensure scrolling works
-                    function scrollToBottom() {
-                        // Target the container div with height 400px specifically for chat
-                        var chatContainer = parent.document.querySelector('[data-testid="stVerticalBlock"][style*="height: 400px"]');
-                        if (chatContainer) {
-                            chatContainer.scrollTop = chatContainer.scrollHeight;
-                            return true;
-                        }
-                        
-                        // Alternative: target by class if specific height selector doesn't work
-                        var containers = parent.document.querySelectorAll('[data-testid="stVerticalBlock"]');
-                        for (var i = 0; i < containers.length; i++) {
-                            var container = containers[i];
-                            var style = container.getAttribute('style') || container.style.cssText;
-                            if (style.includes('height: 400px') || style.includes('height:400px')) {
-                                container.scrollTop = container.scrollHeight;
-                                return true;
-                            }
-                        }
-                        return false;
-                    }
-                    
-                    // Try scrolling immediately
-                    setTimeout(scrollToBottom, 100);
-                    // Try again after a longer delay to handle session loading
-                    setTimeout(scrollToBottom, 500);
-                    // Final attempt for slow loading
-                    setTimeout(scrollToBottom, 1000);
-                    </script>
-                    """,
-                    unsafe_allow_html=True
-                )
-        else:
-            st.info("💬 No messages yet. Start by asking a question about the PRD!")
+    if messages:
+        # Display all messages using native Streamlit chat API
+        for i, message in enumerate(messages):
+            role = message.get("role") or message.get("type", "assistant")
+            content = message.get("content", "")
+            display_chat_message(role, content)
+        
+        # Auto-scroll to bottom after rendering messages
+        if auto_scroll and len(messages) > 0:
+            scroll_to_bottom()
+    else:
+        st.info("💬 No messages yet. Start by asking a question about the PRD!")
 
 
 def render_quick_actions():
@@ -548,23 +526,8 @@ def render_quick_actions():
 
 
 def render_chat_input():
-    """Render the chat input area with send/clear buttons"""
-    # Initialize chat_input value if not exists
-    if 'chat_input_value' not in st.session_state:
-        st.session_state.chat_input_value = ""
-    
-    user_input = st.text_area(
-        "What would you like to change in the PRD?", 
-        value=st.session_state.chat_input_value,
-        placeholder="e.g., Add a section about mobile app features, Update the timeline, Remove the analytics requirements...",
-        height=200,
-        key="chat_input_main"
-    )
-    
-    col_send, col_clear = st.columns([3, 1])
-    
-    # Return user_input and columns
-    return user_input, col_send, col_clear
+    """Render the native Streamlit chat input"""
+    return st.chat_input("What would you like to change in the PRD?")
 
 
 def render_historical_version_view():
