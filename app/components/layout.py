@@ -5,7 +5,6 @@ This module contains all UI layout functions, CSS styles, and component builders
 
 import streamlit as st
 from typing import List, Dict, Any, Optional, Tuple
-import uuid
 
 
 def setup_page_config():
@@ -109,6 +108,90 @@ def load_custom_css():
     }
     .loading-text {
         animation: pulse 2s ease-in-out infinite;
+    }
+    
+    /* Skeleton Loading Styles */
+    .skeleton {
+        background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
+        background-size: 200% 100%;
+        animation: loading 1.5s infinite;
+        border-radius: 4px;
+    }
+    
+    @keyframes loading {
+        0% { background-position: 200% 0; }
+        100% { background-position: -200% 0; }
+    }
+    
+    .skeleton-content {
+        padding: 1.5rem;
+        margin: 1rem 0;
+        background-color: #ffffff;
+        border: 1px solid #ddd;
+        border-radius: 0.5rem;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    
+    .skeleton-title {
+        height: 32px;
+        width: 60%;
+        margin-bottom: 1.5rem;
+    }
+    
+    .skeleton-heading {
+        height: 24px;
+        width: 40%;
+        margin: 1.5rem 0 1rem 0;
+    }
+    
+    .skeleton-line {
+        height: 16px;
+        margin-bottom: 0.75rem;
+        border-radius: 4px;
+    }
+    
+    .skeleton-line.long {
+        width: 95%;
+    }
+    
+    .skeleton-line.medium {
+        width: 75%;
+    }
+    
+    .skeleton-line.short {
+        width: 45%;
+    }
+    
+    .skeleton-line.very-short {
+        width: 25%;
+    }
+    
+    .skeleton-section {
+        margin-bottom: 2rem;
+    }
+    
+    .skeleton-bullet {
+        height: 14px;
+        width: 85%;
+        margin-bottom: 0.5rem;
+        margin-left: 1rem;
+    }
+    
+    .skeleton-overlay {
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background-color: rgba(255, 255, 255, 0.95);
+        display: flex;
+        flex-direction: column;
+        justify-content: flex-start;
+        align-items: stretch;
+        border-radius: 0.5rem;
+        z-index: 1000;
+        min-height: 400px;
+        padding: 0;
     }
     .version-nav {
         background-color: #f8f9fa;
@@ -269,8 +352,8 @@ def render_sidebar_version_history(db, versions: List[Dict]):
                 type="primary" if is_current_viewing else "secondary"
             ):
                 st.session_state.viewing_version = version['version_number']
-                # Default to compare mode if not current version, otherwise preview
-                st.session_state.show_diff = (version['version_number'] != st.session_state.current_version)
+                # If clicking on latest version, go to chat mode, otherwise compare mode
+                st.session_state.show_diff = False if version['version_number'] == st.session_state.current_version else True
                 st.rerun()
             
             # Show details in expander only if currently viewing this version
@@ -288,62 +371,66 @@ def render_sidebar_version_history(db, versions: List[Dict]):
 @st.dialog("⚠️ Confirm Rollback")
 def rollback_confirmation_dialog(db):
     """Show rollback confirmation dialog"""
+    # Defensive check
+    if not hasattr(st.session_state, 'rollback_target') or st.session_state.rollback_target is None:
+        return
+        
+    target_version = st.session_state.rollback_target
+    
     st.markdown(f"""
-    ### 🔄 Rollback to Version {st.session_state.rollback_target}
+    ### 🔄 Rollback to Version {target_version}
     
     **⚠️ WARNING: This action cannot be undone!**
     
     This will permanently:
-    - ❌ Delete Version {st.session_state.rollback_target + 1} through {st.session_state.current_version}
-    - ❌ Remove all chat messages after Version {st.session_state.rollback_target}
+    - ❌ Delete Version {target_version + 1} through {st.session_state.current_version}
+    - ❌ Remove all chat messages after Version {target_version}
     - ❌ Lose all progress made after this version
     
-    **Current version:** {st.session_state.current_version} → **New version:** {st.session_state.rollback_target}
+    **Current version:** {st.session_state.current_version} → **New version:** {target_version}
     """)
     
     col_confirm, col_cancel = st.columns([1, 1])
     
     with col_confirm:
         if st.button("✅ **YES, ROLLBACK**", key="confirm_rollback", use_container_width=True, type="primary"):
+            # Clear rollback target immediately
+            st.session_state.rollback_target = None
+            
             # Perform rollback
-            if db.rollback_to_version(st.session_state.session_id, st.session_state.rollback_target):
+            if db.rollback_to_version(st.session_state.session_id, target_version):
                 # Update session state
-                st.session_state.current_version = st.session_state.rollback_target
-                st.session_state.viewing_version = st.session_state.rollback_target
+                st.session_state.current_version = target_version
+                st.session_state.viewing_version = target_version
                 st.session_state.show_diff = False
                 
                 # Reload messages from database
                 st.session_state.messages = db.get_chat_history(st.session_state.session_id)
                 
                 # Get the content of the rollback version
-                version_data = db.get_version_by_number(st.session_state.session_id, st.session_state.rollback_target)
+                version_data = db.get_version_by_number(st.session_state.session_id, target_version)
                 if version_data:
                     st.session_state.current_prd = version_data['content']
                 
                 # Set toast to show after rerun
                 st.session_state.show_toast = "rollback_success"
-                
-                st.success(f"✅ Successfully rolled back to Version {st.session_state.rollback_target}!")
-                
-                # Clean up
-                if hasattr(st.session_state, 'rollback_target'):
-                    del st.session_state.rollback_target
-                
-                st.rerun()
+                st.success(f"✅ Successfully rolled back!")
             else:
                 st.error("❌ Failed to rollback. Please try again.")
+            
+            st.rerun()
     
     with col_cancel:
         if st.button("❌ **CANCEL**", key="cancel_rollback", use_container_width=True):
-            # Clean up
-            if hasattr(st.session_state, 'rollback_target'):
-                del st.session_state.rollback_target
+            # Clear rollback target
+            st.session_state.rollback_target = None
             st.rerun()
 
 
 def render_rollback_modal(db):
     """Render the rollback confirmation modal using st.dialog"""
-    if hasattr(st.session_state, 'rollback_target') and st.session_state.rollback_target:
+    # Check if rollback_target exists and is valid
+    if hasattr(st.session_state, 'rollback_target') and st.session_state.rollback_target is not None and st.session_state.rollback_target > 0:
         rollback_confirmation_dialog(db)
 
 
@@ -377,27 +464,55 @@ def render_chat_interface(messages: List[Dict], max_height: str = "calc(100vh - 
         max_height: CSS size for the maximum height of chat area (e.g., '65vh', '500px', 'calc(100vh - 300px)').
         auto_scroll: If True, auto-scroll to the bottom after render.
     """
-    chat_div_id = f"chat-window-{uuid.uuid4().hex}"
-    st.markdown(f'<div id="{chat_div_id}" class="chat-window" style="max-height: {max_height};">', unsafe_allow_html=True)
-    for message in messages:
-        with st.container():
-            role = message.get("role") or message.get("type", "assistant")
-            content = message.get("content", "")
-            display_chat_message(role, content)
-    st.markdown('</div>', unsafe_allow_html=True)
-
-    if auto_scroll:
-        st.markdown(
-            f"""
-            <script>
-            setTimeout(function() {{
-                var el = document.getElementById('{chat_div_id}');
-                if (el) {{ el.scrollTop = el.scrollHeight; }}
-            }}, 0);
-            </script>
-            """,
-            unsafe_allow_html=True,
-        )
+    # Use Streamlit's native container with height constraint and auto-scroll
+    container = st.container(height=400)  # Fixed height for scrolling
+    
+    with container:
+        if messages:
+            for i, message in enumerate(messages):
+                role = message.get("role") or message.get("type", "assistant")
+                content = message.get("content", "")
+                display_chat_message(role, content)
+            
+            # Auto-scroll to bottom using JavaScript
+            if auto_scroll and len(messages) > 0:
+                st.markdown(
+                    """
+                    <script>
+                    // Multiple attempts to ensure scrolling works
+                    function scrollToBottom() {
+                        // Target the container div with height 400px specifically for chat
+                        var chatContainer = parent.document.querySelector('[data-testid="stVerticalBlock"][style*="height: 400px"]');
+                        if (chatContainer) {
+                            chatContainer.scrollTop = chatContainer.scrollHeight;
+                            return true;
+                        }
+                        
+                        // Alternative: target by class if specific height selector doesn't work
+                        var containers = parent.document.querySelectorAll('[data-testid="stVerticalBlock"]');
+                        for (var i = 0; i < containers.length; i++) {
+                            var container = containers[i];
+                            var style = container.getAttribute('style') || container.style.cssText;
+                            if (style.includes('height: 400px') || style.includes('height:400px')) {
+                                container.scrollTop = container.scrollHeight;
+                                return true;
+                            }
+                        }
+                        return false;
+                    }
+                    
+                    // Try scrolling immediately
+                    setTimeout(scrollToBottom, 100);
+                    // Try again after a longer delay to handle session loading
+                    setTimeout(scrollToBottom, 500);
+                    // Final attempt for slow loading
+                    setTimeout(scrollToBottom, 1000);
+                    </script>
+                    """,
+                    unsafe_allow_html=True
+                )
+        else:
+            st.info("💬 No messages yet. Start by asking a question about the PRD!")
 
 
 def render_quick_actions():
@@ -434,18 +549,21 @@ def render_quick_actions():
 
 def render_chat_input():
     """Render the chat input area with send/clear buttons"""
-    # Initialize input counter for unique keys
-    if 'input_counter' not in st.session_state:
-        st.session_state.input_counter = 0
+    # Initialize chat_input value if not exists
+    if 'chat_input_value' not in st.session_state:
+        st.session_state.chat_input_value = ""
     
     user_input = st.text_area(
         "What would you like to change in the PRD?", 
+        value=st.session_state.chat_input_value,
         placeholder="e.g., Add a section about mobile app features, Update the timeline, Remove the analytics requirements...",
-        height=80,
-        key=f"chat_input_{st.session_state.input_counter}"
+        height=200,
+        key="chat_input_main"
     )
     
     col_send, col_clear = st.columns([3, 1])
+    
+    # Return user_input and columns
     return user_input, col_send, col_clear
 
 
@@ -517,41 +635,26 @@ def render_version_navigation(versions: List[Dict]):
             st.markdown("---")
             st.markdown("**Version Actions:**")
             
-            # Create pills for actions
-            action_map = {
-                "compare": ":material/compare_arrows:",
-                "preview": ":material/visibility:", 
-                "rollback": ":material/history:"
-            }
+            col_actions = st.columns([2, 1])
             
-            action_labels = {
-                "compare": "Compare Mode",
-                "preview": "Preview Mode",
-                "rollback": "Rollback to This"
-            }
+            with col_actions[0]:
+                # Switch button - shows what mode to switch TO, not current mode
+                if st.session_state.show_diff:
+                    switch_label = "Switch to Preview Mode"
+                    switch_icon = ":material/visibility:"
+                else:
+                    switch_label = "Switch to Compare Mode"
+                    switch_icon = ":material/compare_arrows:"
+                
+                if st.button(f"{switch_icon} {switch_label}", use_container_width=True):
+                    st.session_state.show_diff = not st.session_state.show_diff
+                    st.rerun()
             
-            # Determine current mode for selection
-            current_mode = "compare" if st.session_state.show_diff else "preview"
-            
-            selection = st.pills(
-                "Version Actions",
-                options=list(action_map.keys()),
-                format_func=lambda option: f"{action_map[option]} {action_labels[option]}",
-                selection_mode="single",
-                label_visibility="collapsed",
-                default=current_mode
-            )
-            
-            # Handle selection
-            if selection == "compare" and not st.session_state.show_diff:
-                st.session_state.show_diff = True
-                st.rerun()
-            elif selection == "preview" and st.session_state.show_diff:
-                st.session_state.show_diff = False
-                st.rerun()
-            elif selection == "rollback":
-                st.session_state.rollback_target = st.session_state.viewing_version
-                st.rerun()
+            with col_actions[1]:
+                # Rollback button
+                if st.button(":material/history: Rollback", use_container_width=True, type="secondary"):
+                    st.session_state.rollback_target = st.session_state.viewing_version
+                    st.rerun()
 
 
 def render_action_buttons():
@@ -559,7 +662,15 @@ def render_action_buttons():
     col_actions = st.columns(3)
     
     with col_actions[0]:
-        if st.button("📊 Show Changes", use_container_width=True):
+        # Switch button - shows what mode to switch TO, not current mode
+        if st.session_state.show_diff:
+            switch_label = "Switch to Preview Mode"
+            switch_icon = "�️"
+        else:
+            switch_label = "Switch to Compare Mode"
+            switch_icon = "📊"
+            
+        if st.button(f"{switch_icon} {switch_label}", use_container_width=True):
             st.session_state.show_diff = not st.session_state.show_diff
             st.rerun()
     
@@ -614,3 +725,65 @@ def render_prd_preview_content(current_content: str, loading: bool = False, mess
             """,
             unsafe_allow_html=True,
         )
+
+
+def render_prd_skeleton_loading(message: str = "🤖 AI is generating your PRD..."):
+    """Render a skeleton loading animation for PRD content while it's being generated.
+    
+    This creates a realistic preview of what a PRD document structure looks like
+    with animated skeleton placeholders.
+    
+    Args:
+        message: Loading message to display above the skeleton.
+    """
+    # Základní skeleton styling
+    skeleton_css = """
+    <style>
+    .skeleton-item {
+        background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
+        background-size: 200% 100%;
+        animation: skeleton-pulse 1.5s infinite;
+        border-radius: 4px;
+        margin-bottom: 0.75rem;
+    }
+    
+    @keyframes skeleton-pulse {
+        0% { background-position: 200% 0; }
+        100% { background-position: -200% 0; }
+    }
+    
+    .skeleton-container {
+        padding: 1.5rem;
+        margin: 1rem 0;
+        background-color: #ffffff;
+        border: 1px solid #ddd;
+        border-radius: 0.5rem;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    </style>
+    """
+    
+    # Načteme CSS
+    st.markdown(skeleton_css, unsafe_allow_html=True)
+    
+    # Main Title
+    st.markdown('<div class="skeleton-item" style="height: 32px; width: 60%;"></div>', unsafe_allow_html=True)
+    
+    # Sections - použijeme Streamlit kolumny pro lepší kontrolu
+    for i in range(5):
+        # Section header
+        st.markdown(f'<div class="skeleton-item" style="height: 24px; width: {40 - i*2}%; margin-top: 1.5rem;"></div>', unsafe_allow_html=True)
+        
+        # Section content lines
+        for j in range(3):
+            width = [95, 75, 85][j] if j < 3 else 80
+            st.markdown(f'<div class="skeleton-item" style="height: 16px; width: {width}%;"></div>', unsafe_allow_html=True)
+        
+        # Bullet points for some sections
+        if i == 2:  # Features section
+            for k in range(4):
+                width = [85, 90, 75, 80][k]
+                st.markdown(f'<div class="skeleton-item" style="height: 14px; width: {width}%; margin-left: 1rem;"></div>', unsafe_allow_html=True)
+    
+    # Uzavření containeru
+    st.markdown('</div>', unsafe_allow_html=True)

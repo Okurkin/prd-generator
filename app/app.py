@@ -68,9 +68,14 @@ if 'current_version' not in st.session_state:
 if 'viewing_version' not in st.session_state:
     st.session_state.viewing_version = 1
 if 'show_diff' not in st.session_state:
-    st.session_state.show_diff = False
+    st.session_state.show_diff = True
 if 'is_loading' not in st.session_state:
     st.session_state.is_loading = False
+
+# Clean up any lingering rollback target from previous sessions/refreshes
+if hasattr(st.session_state, 'rollback_target') and 'rollback_target' in st.session_state:
+    if st.session_state.rollback_target is None or st.session_state.rollback_target <= 0:
+        del st.session_state.rollback_target
 
 def create_new_session():
     """Create a new chat session"""
@@ -81,7 +86,10 @@ def create_new_session():
     st.session_state.initialized = False
     st.session_state.current_version = 1
     st.session_state.viewing_version = 1
-    st.session_state.show_diff = False
+    st.session_state.show_diff = True
+    
+    # Mark that session was just created to trigger auto-scroll
+    st.session_state.session_just_loaded = True
 
 def load_session(session_id: str, product_name: str):
     """Load an existing session"""
@@ -98,6 +106,9 @@ def load_session(session_id: str, product_name: str):
         st.session_state.viewing_version = latest_version['version_number']
     
     st.session_state.show_diff = False
+    
+    # Mark that session was just loaded to trigger auto-scroll
+    st.session_state.session_just_loaded = True
 
 def download_prd():
     """Generate download for current PRD"""
@@ -135,58 +146,136 @@ def render_chat_panel(db):
     
     st.header("💬 Interactive PRD Chat")
     
+    # ========== ZPRACOVÁNÍ LOADING STAVŮ NA ZAČÁTKU ==========
+    # Zpracování počátečního PRD generování
+    if st.session_state.is_loading and not st.session_state.initialized:
+        # Extract MRD content if provided from session state
+        mrd_content = st.session_state.get('temp_mrd_content', "")
+        additional_context = st.session_state.get('temp_additional_context', "")
+        
+        # Generate initial PRD
+        with st.spinner("🤖 AI is generating initial PRD..."):
+            initial_prd = generate_initial_prd(mrd_content, st.session_state.product_name, additional_context)
+            st.session_state.current_prd = initial_prd
+            st.session_state.initialized = True
+            st.session_state.current_version = 1
+            st.session_state.viewing_version = 1
+            
+            # Save to database
+            initial_prompt = f"Product: {st.session_state.product_name}"
+            if mrd_content:
+                initial_prompt += f"\nMRD Content: {mrd_content[:200]}..."
+            if additional_context:
+                initial_prompt += f"\nAdditional Context: {additional_context}"
+            
+            db.save_version(
+                st.session_state.session_id,
+                initial_prd,
+                "Initial PRD",
+                "Generated initial PRD from MRD and context",
+                initial_prompt
+            )
+            
+            # Add to chat history
+            st.session_state.messages.append({
+                "role": "assistant",
+                "content": f"I've generated an initial PRD for '{st.session_state.product_name}'. You can see it in the preview panel. How would you like to modify it?"
+            })
+            
+            db.save_chat_message(st.session_state.session_id, "assistant", st.session_state.messages[-1]["content"])
+            
+            # Vyčistíme dočasné hodnoty
+            if 'temp_mrd_content' in st.session_state:
+                del st.session_state.temp_mrd_content
+            if 'temp_additional_context' in st.session_state:
+                del st.session_state.temp_additional_context
+            
+            # Set toast to show after rerun
+            st.session_state.show_toast = "initial_prd"
+        
+        st.session_state.is_loading = False
+        st.rerun()
+    
+    # Zpracování update PRD z chat zpráv
+    if st.session_state.is_loading and st.session_state.initialized and st.session_state.messages:
+        last_message = st.session_state.messages[-1]
+        last_role = last_message.get("role") or last_message.get("type", "assistant")
+        
+        if last_role == "user":
+            user_request = last_message.get("content", "")
+            
+            # Generate updated PRD
+            old_prd = st.session_state.current_prd
+            
+            with st.spinner("🤖 AI is generating updated PRD..."):
+                updated_prd = generate_interactive_prd_update(
+                    st.session_state.current_prd,
+                    user_request,
+                    st.session_state.product_name
+                )
+            
+            if updated_prd and not updated_prd.startswith("Error"):
+                st.session_state.current_prd = updated_prd
+                st.session_state.current_version += 1
+                st.session_state.viewing_version = st.session_state.current_version
+                
+                # Generate change summary
+                change_summary = generate_change_summary(old_prd, updated_prd)
+                
+                # Save new version
+                db.save_version(
+                    st.session_state.session_id,
+                    updated_prd,
+                    "User Request Update",
+                    change_summary,
+                    user_request
+                )
+                
+                # Add assistant response
+                assistant_message = f"I've updated the PRD based on your request. Changes: {change_summary}"
+                st.session_state.messages.append({
+                    "role": "assistant",
+                    "content": assistant_message
+                })
+                db.save_chat_message(st.session_state.session_id, "assistant", assistant_message)
+                
+                # Set toast to show after rerun
+                st.session_state.show_toast = "prd_updated"
+            else:
+                assistant_message = f"Sorry, I encountered an error: {updated_prd}"
+                st.session_state.messages.append({
+                    "role": "assistant",
+                    "content": assistant_message
+                })
+                db.save_chat_message(st.session_state.session_id, "assistant", assistant_message)
+                st.session_state.show_toast = "prd_error"
+            
+            st.session_state.is_loading = False
+            st.rerun()
+    
+    # ========== NORMÁLNÍ UI LOGIKA ==========
+    
     # Initial setup if not initialized
     if not st.session_state.initialized:
         product_name, mrd_file, additional_context = render_initial_setup_form()
         
         if st.button("🎯 Generate Initial PRD", use_container_width=True):
             if product_name:
+                # Uložíme všechna data z formuláře do session state
                 st.session_state.product_name = product_name
+                st.session_state.temp_mrd_content = ""
+                st.session_state.temp_additional_context = additional_context or ""
+                
+                # Extract MRD content if provided
+                if mrd_file:
+                    st.session_state.temp_mrd_content = extract_text_from_file(mrd_file)
+                
                 st.session_state.is_loading = True
                 
                 # Create session in database
                 db.create_session(st.session_state.session_id, product_name)
                 
-                # Extract MRD content if provided
-                mrd_content = ""
-                if mrd_file:
-                    mrd_content = extract_text_from_file(mrd_file)
-                
-                # Generate initial PRD
-                with st.spinner("Generating initial PRD..."):
-                    initial_prd = generate_initial_prd(mrd_content, product_name, additional_context)
-                    st.session_state.current_prd = initial_prd
-                    st.session_state.initialized = True
-                    st.session_state.current_version = 1
-                    st.session_state.viewing_version = 1
-                    
-                    # Save to database
-                    initial_prompt = f"Product: {product_name}"
-                    if mrd_content:
-                        initial_prompt += f"\nMRD Content: {mrd_content[:200]}..."
-                    if additional_context:
-                        initial_prompt += f"\nAdditional Context: {additional_context}"
-                    
-                    db.save_version(
-                        st.session_state.session_id,
-                        initial_prd,
-                        "Initial PRD",
-                        "Generated initial PRD from MRD and context",
-                        initial_prompt
-                    )
-                    
-                    # Add to chat history
-                    st.session_state.messages.append({
-                        "role": "assistant",
-                        "content": f"I've generated an initial PRD for '{product_name}'. You can see it in the preview panel. How would you like to modify it?"
-                    })
-                    
-                    db.save_chat_message(st.session_state.session_id, "assistant", st.session_state.messages[-1]["content"])
-                    
-                    # Set toast to show after rerun
-                    st.session_state.show_toast = "initial_prd"
-                
-                st.session_state.is_loading = False
+                # Ihned rerun, aby se zobrazil skeleton loading
                 st.rerun()
             else:
                 st.error("Please enter a product name")
@@ -200,7 +289,12 @@ def render_chat_panel(db):
             # CURRENT VERSION - Show normal chat interface
             
             # Display chat messages
-            render_chat_interface(st.session_state.messages)
+            should_auto_scroll = True
+            if hasattr(st.session_state, 'session_just_loaded') and st.session_state.session_just_loaded:
+                # Force scroll when session is just loaded
+                st.session_state.session_just_loaded = False
+                should_auto_scroll = True
+            render_chat_interface(st.session_state.messages, auto_scroll=should_auto_scroll)
             
             # Quick Actions before chat input
             if not st.session_state.is_loading:
@@ -228,20 +322,26 @@ def render_chat_panel(db):
             # Chat input for current version
             user_input, col_send, col_clear = render_chat_input()
             
+            # Update session state with current input value
+            if user_input != st.session_state.get('chat_input_value', ''):
+                st.session_state.chat_input_value = user_input
+            
             with col_send:
-                if st.button("💬 Send Message", use_container_width=True) and user_input and not st.session_state.is_loading:
+                if st.button("💬 Send Message", key="send_message_btn", use_container_width=True) and user_input and not st.session_state.is_loading:
                     # Add user message
                     st.session_state.messages.append({"role": "user", "content": user_input})
                     db.save_chat_message(st.session_state.session_id, "user", user_input)
                     
-                    # Increment counter to create new input widget
-                    st.session_state.input_counter = st.session_state.get('input_counter', 0) + 1
+                    # Clear the input value
+                    st.session_state.chat_input_value = ""
                     st.session_state.is_loading = True
                     st.rerun()
             
             with col_clear:
-                if st.button("🗑️ Clear", use_container_width=True):
+                if st.button("🗑️ Clear", key="clear_messages_btn", use_container_width=True):
                     st.session_state.messages = []
+                    # Clear the input value
+                    st.session_state.chat_input_value = ""
                     st.rerun()
         
         else:
@@ -339,64 +439,6 @@ def render_chat_panel(db):
             # Message about returning to current version to continue chatting
             st.markdown("---")
             st.info("💡 To continue the conversation, return to the latest version using the sidebar.")
-        
-        # Process the AI update if loading (only for current version)
-        if st.session_state.viewing_version == st.session_state.current_version:
-            if st.session_state.is_loading and st.session_state.messages:
-                last_message = st.session_state.messages[-1]
-                last_role = last_message.get("role") or last_message.get("type", "assistant")
-                
-                if last_role == "user":
-                    user_request = last_message.get("content", "")
-                    
-                    # Generate updated PRD
-                    old_prd = st.session_state.current_prd
-                    
-                    with st.spinner("🤖 AI is generating updated PRD..."):
-                        updated_prd = generate_interactive_prd_update(
-                            st.session_state.current_prd,
-                            user_request,
-                            st.session_state.product_name
-                        )
-                    
-                    if updated_prd and not updated_prd.startswith("Error"):
-                        st.session_state.current_prd = updated_prd
-                        st.session_state.current_version += 1
-                        st.session_state.viewing_version = st.session_state.current_version
-                        
-                        # Generate change summary
-                        change_summary = generate_change_summary(old_prd, updated_prd)
-                        
-                        # Save new version
-                        db.save_version(
-                            st.session_state.session_id,
-                            updated_prd,
-                            "User Request Update",
-                            change_summary,
-                            user_request
-                        )
-                        
-                        # Add assistant response
-                        assistant_message = f"I've updated the PRD based on your request. Changes: {change_summary}"
-                        st.session_state.messages.append({
-                            "role": "assistant",
-                            "content": assistant_message
-                        })
-                        db.save_chat_message(st.session_state.session_id, "assistant", assistant_message)
-                        
-                        # Set toast to show after rerun
-                        st.session_state.show_toast = "prd_updated"
-                    else:
-                        assistant_message = f"Sorry, I encountered an error: {updated_prd}"
-                        st.session_state.messages.append({
-                            "role": "assistant",
-                            "content": assistant_message
-                        })
-                        db.save_chat_message(st.session_state.session_id, "assistant", assistant_message)
-                        st.session_state.show_toast = "prd_error"
-                    
-                    st.session_state.is_loading = False
-                    st.rerun()
     
     # Close sticky wrapper
     st.markdown('</div>', unsafe_allow_html=True)
@@ -408,7 +450,12 @@ def render_prd_panel(db):
 
     # Pokud ještě není inicializováno
     if not st.session_state.initialized:
-        st.info("👈 Start by creating an initial PRD in the chat panel")
+        # Pokud generujeme počáteční PRD, zobrazíme skeleton
+        if st.session_state.is_loading:
+            from components.layout import render_prd_skeleton_loading
+            render_prd_skeleton_loading("🤖 AI is generating your initial PRD...")
+        else:
+            st.info("👈 Start by creating an initial PRD in the chat panel")
         return
 
     # Navigace mezi verzemi
@@ -422,17 +469,14 @@ def render_prd_panel(db):
     # Kontejner pro preview
     preview_container = render_prd_content_container()
     with preview_container:
-        # === LOADING STAV ===
+        # === LOADING STAV S SKELETON ===
         if (
             st.session_state.is_loading
             and st.session_state.viewing_version == st.session_state.current_version
         ):
-            from components.layout import render_prd_preview_content
-            render_prd_preview_content(
-                current_content,
-                loading=True,
-                message="🤖 AI is updating your PRD..."
-            )
+            from components.layout import render_prd_skeleton_loading
+            # Použijeme skeleton loading místo obyčejného overlay
+            render_prd_skeleton_loading("🤖 AI is updating your PRD...")
             return
 
         # === DIFF VIEW ===
@@ -477,6 +521,18 @@ with st.sidebar:
         versions = db.get_versions(st.session_state.session_id)
         if versions:
             render_sidebar_version_history(db, versions)
+
+# Global cleanup for rollback modal - clear if user navigated away
+if hasattr(st.session_state, 'rollback_target') and st.session_state.rollback_target is not None:
+    # Track the last version user was viewing
+    if 'last_viewing_version' not in st.session_state:
+        st.session_state.last_viewing_version = st.session_state.viewing_version
+    
+    # If user changed version or navigated away, clear rollback target
+    if st.session_state.viewing_version != st.session_state.last_viewing_version:
+        st.session_state.rollback_target = None
+    
+    st.session_state.last_viewing_version = st.session_state.viewing_version
 
 # Rollback confirmation modal
 render_rollback_modal(db)
